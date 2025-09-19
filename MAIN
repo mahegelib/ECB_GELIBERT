@@ -1,0 +1,280 @@
+* Event study data preparation (public demo: STATA)
+* For reasons of data ownership and confidentiality, real file paths and proprietary datasets are not included.
+* Replace dummy paths like path/to/data/... with your local paths if you run this privately.
+* --- Setup (no real paths) ---
+* cd "path/to/data"
+* (Optional) packages
+* ssc install winsor2, replace
+* ssc install reghdfe, replace
+* ssc install ftools, replace
+* -------------------------------------------------
+* Process CRSP locations dataset
+use "CRSP_locations.dta", clear
+rename tic ticker
+sort ticker
+duplicates drop ticker, force
+save "CRSP_locations_2.dta", replace
+
+* -------------------------------------------------
+* Process zipcode to FIPS crosswalk
+use "locations2017.dta", clear
+rename stcountyfp fipscode
+rename zip addzip
+duplicates drop addzip, force
+save "locations2017_2.dta", replace
+
+* -------------------------------------------------
+* Prepare 8-K announcement date merge
+use "compustat_announcementsdate.dta ",clear
+duplicates drop ticker announcement_year,force
+save "compustat_announcements_8_K_2021_2025ANNOUNCEMENTDATE_2.dta",replace
+
+* -------------------------------------------------
+* Process SIC 2-digit codes for future merge
+use "sic2digit.dta",clear
+rename A sic
+recast str4 sic
+drop if sic==""
+drop if sic=="SIC 2 Digit Code"
+drop if sic=="Code Value"
+rename B description
+sort sic
+destring sic, replace force
+recast float sic
+format sic %9.0g
+save  "sic2digit_2.dta",replace
+
+* -------------------------------------------------
+
+* Process 8-K filings
+use "compustat_announcements_8_K_2021_2025_new.dta", clear
+duplicates drop ticker announcement_year,force
+merge 1:1 ticker announcement_year using "compustat_announcements_8_K_2021_2025ANNOUNCEMENTDATE_2.dta"
+drop num_eightk_total num_eightk_total_wo_financial_st num_eightk_amendmentstoarticleso num_eightk_amendmentstotheregist num_eightk_bankruptcyorreceivers num_eightk_changeinshellcompanys num_eightk_changesincontrolofreg num_eightk_changesinregistrantsc num_eightk_completionofacquisiti num_eightk_costassociatedwithexi num_eightk_creationofadirectfina num_eightk_departureofdirectorso num_eightk_entryintoamaterialdef num_eightk_financialstatementsan num_eightk_materialimpairments num_eightk_materialmodifications num_eightk_minesafetyreportingof num_eightk_nonrelianceonprevious num_eightk_noticeofdelistingorfa num_eightk_otherevents num_eightk_regulationfddisclosur num_eightk_resultsofoperationsan num_eightk_shareholdernomination num_eightk_submissionofmattersto num_eightk_temporarysuspensionof num_eightk_terminationofamateria num_eightk_triggeringeventsthata num_eightk_unregisteredsalesofeq _merge
+*Merge with SIC DATA
+merge m:1 gvkey using "comp_gvkey_ind.dta"
+drop if _merge!=3
+drop _merge
+gen str2  twochar = substr(sic, 1, 2)
+gen first2 = real(substr(twochar, 1, 2))
+drop sic twochar
+rename first2 sic
+merge m:1 sic using "sic2digit_2.dta"
+drop if _merge!=3
+drop _merge
+*Doing final adjustments
+gen announce_dt_float = daily(announcement_date, "YMD")
+format announce_dt_float %td
+gen ann_month = month(announce_dt_float)
+gen ann_year  = year(announce_dt_float)
+gen announcement_year2 = ann_year - (ann_month <= 3)
+drop announcement_year
+rename announcement_year2 announcement_year
+order announce_dt_float, before(announcement_date)
+rename announcement_date announce_dt
+order announcement_year, before(period_start)
+save "compustat_announcements_8_K_2021_2025_new_2.dta", replace
+
+* -------------------------------------------------
+* Process CRSP ticker announcement dates
+use "crsp_processed_2021_2025.dta", clear
+keep ticker announcement_date
+gen announce_dt_float = daily(announcement_date, "YMD")
+format announce_dt_float %td
+duplicates drop ticker announce_dt_float, force
+gen announce_year = year(announce_dt_float)
+rename announce_year ddate_year
+* If a 10-K is filed in January, February, or March it is assigned to the prior fiscal year (90 days rationale explained in the Thesis)
+gen ann_month = month(announce_dt)
+gen ann_year  = year(announce_dt)
+gen announcement_year = ann_year - (ann_month <= 3)
+drop ann_month ann_year
+drop announcement_date
+drop ddate_year
+rename announcement_year ddate_year
+save "crsp_processed_2021_2025_2.dta", replace
+
+* -------------------------------------------------
+* Process FEMA disaster declarations
+use "DisasterDeclarationsSummaries.dta", clear
+drop if fydeclared<=2020
+gen fipscode = fipsstatecode * 1000 + fipscountycode
+order fipscode, after(fipscountycode)
+rename fydeclared ddate_year
+drop hash id lastrefresh
+duplicates report fipscode ddate_year
+duplicates drop fipscode ddate_year, force
+save "DisasterDeclarationsSummaries_2.dta", replace
+
+* -------------------------------------------------
+* Main CRSP dataset and event study
+use "crsp_2021_2025.dta", clear
+
+* Drop unnecessary variables
+drop securityhdr
+drop permno secinfostartdt secinfoenddt securitybegdt securityenddt hdrcusip hdrcusip9 cusip cusip9 primaryexch conditionaltype exchangetier tradingstatusflg securitynm shareclass usincflg issuertype securitytype securitysubtype sharetype securityactiveflg delactiontype delstatustype delreasontype delpaymenttype
+drop tradingsymbol permco siccd naics icbindustry nasdcompno nasdissuno issuernm dlydelflg dlycapflg dlyprevprcflg dlyprevcapflg dlyretmissflg dlyretdurflg dlyorddivamt dlynonorddivamt dlyfacprc dlydistretflg dlynumtrd dlymmcnt dlyprcvol shrout shrsource shrfactype shradrflg disexdt disseqnbr disordinaryflg distype disfreqtype dispaymenttype disdetailtype distaxtype disorigcurtype disdivamt disfacpr disfacshr disdeclaredt disrecorddt dispaydt dispermno dispermco vwretx ewretd ewretx sprtrn
+drop dlyprc dlyprcflg dlycap dlyprevprc dlyprevdt dlyprevcap dlyretx dlyreti dlylow dlyhigh dlybid dlyask shrstartdt shrenddt
+
+ drop if ticker == ""
+* Start of analysis code
+sort ticker
+duplicates drop
+gen str10 dlycaldt_iso = substr(dlycaldt, 7, 4) + "-" + substr(dlycaldt, 4, 2) + "-" + substr(dlycaldt, 1, 2)
+gen ddate = daily(dlycaldt_iso, "YMD")
+format ddate %td
+gen ddate_year = year(ddate)
+
+* Merge to add announcement date information to the dataset
+merge m:1 ticker ddate_year using "crsp_processed_2021_2025_2.dta", keep(match) nogenerate
+sort ticker ddate
+
+encode ticker, gen(firmid)
+egen eventid = group(firmid announce_dt_float)
+gen etime = ddate - announce_dt_float
+sort eventid etime
+
+sort firmid ddate
+by firmid: gen datenum=_n
+by firmid: gen target=datenum if ddate==announce_dt_float
+egen td=min(target), by(firmid)
+
+gen abs_etime = abs(etime)
+sort eventid abs_etime
+by eventid (abs_etime): gen rank_etime = _n
+
+* The three days surrounding the announcement
+
+gen byte event_window = (rank_etime <= 3)
+replace event_window=. if event_window!=1
+
+* estimation window
+sort eventid
+by eventid: gen estimation_window=1 if etime<-10 & etime>=-150
+replace estimation_window=. if estimation_window!=1
+egen count_est_obs=count(estimation_window), by(eventid)
+tab count_est_obs
+drop if count_est_obs < 96
+* We exclude events with fewer than 96 trading days in the estimation window, as we consider this insufficient for reliable analysis.
+* Although the estimation window covers days -150 to -10 ( 141 calendar days), the average number of actual trading days is only 98 due to weekends and market holidays.
+* We therefore chose a slightly lower threshold (96) to retain most of the sample without compromising robustness.
+egen count_event_obs=count(event_window), by(eventid)
+list eventid count_event if count_event<3, sepby(eventid)
+list eventid count_est_obs if count_est_obs<96, sepby(eventid)
+
+drop if count_event == 2
+
+* Estimate normal performance
+
+* We used the 'statsby' command inspired from the Amin(2021) command (we explained that in the thesis)
+* This allowed us to compute intercepts and slopes efficiently by group & produced the same results but in a much shorter time.
+egen id=group(eventid)
+preserve
+keep if estimation_window==1
+statsby intercept=_b[_cons] slope=_b[vwretd], by(id) clear: regress dlyret vwretd
+save coefs.dta, replace
+restore
+
+merge m:1 id using coefs.dta, keep(match master) nogen
+gen predicted_return2 = intercept + slope * vwretd if event_window==1
+
+sort id ddate
+gen ar=dlyret-predicted_return2 if event_window==1
+gen abs_ar = abs(ar)
+bysort id (etime): gen car = sum(ar) if event_window==1
+bysort id (etime): gen abs_car = sum(abs_ar) if event_window==1
+
+drop if car ==.
+drop if abs_car==.
+
+bysort id: egen last_ddate = max(ddate)
+replace last_ddate=. if ddate != last_ddate
+* From this point on keep only one CAR per firm-year:
+keep if last_ddate!=.
+
+* Test significance
+reg car if etime==0, robust
+
+drop dlyclose dlyopen dlyvol
+drop last_ddate
+drop etime abs_etime rank_etime event_window
+drop yyyymmdd target datenum td estimation_window count_est_obs count_event_obs intercept slope
+* Removing these variables keeps the table clear. Each company now has exactly one CAR from the latest event window date.
+
+* Merge with 8-K data
+duplicates drop ticker announce_dt_float, force
+merge 1:1 ticker announce_dt_float using "compustat_announcements_8_K_2021_2025_new_2.dta"
+drop if _merge==2
+drop _merge
+
+* Merge with firm location
+merge m:1 ticker using "CRSP_locations_2.dta"
+drop if _merge==2
+drop if _merge==1
+drop _merge
+drop dlycaldt_iso dlycaldt
+order firmid, after(ticker)
+
+* Merge zipcode data
+gen long zip5 = real(substr(addzip, 1, 5))
+drop addzip
+rename zip5 addzip
+merge m:1 addzip using "locations2017_2.dta"
+drop if _merge==1
+drop if _merge==2
+drop _merge
+* Merge FIPS codes with disaster data:
+merge m:1 fipscode ddate_year using "DisasterDeclarationsSummaries_2.dta"
+drop if _merge==2
+drop classfp femadeclarationstring disasternumber declarationtype declarationtitle ihprogramdeclared iaprogramdeclared paprogramdeclared hmprogramdeclared incidentbegindate incidentenddate disastercloseoutdate tribalrequest fipscountycode fipsstatecode designatedarea declarationrequestnumber lastiafilingdate incidentid region designatedincidenttypes
+drop ann_year datadate conm period_start gvkey cik v1
+drop eventid id predicted_return2 at epsfx  announce_dt ann_month fic add1 city state _merge  
+replace incidenttype="no incident" if incidenttype==""
+drop if announcement_year==.
+drop announcement_year
+xtset firmid ddate_year
+gen ddisaster=1
+replace ddisaster=0 if incidenttype=="no incident"
+order ddisaster, after(incidenttype)
+sort ticker ddate
+gen ln_revt= ln( revt)
+gen ln_sum_fsize=ln( sum_fsize)
+
+* -------------------------------------------------
+* Winsorize CAR values to limit outliers
+gen car_w=car
+winsor2 car_w, cut(1 99) replace
+gen abs_car_w= abs_car
+winsor2 abs_car_w, cut(1 99) replace
+
+egen med8k = median( num_eightks )
+egen med_car = median( car ) if car<1&car>-1
+egen med_abs_car = median( abs_car ) if car<1&car>-1
+gen high_disclosure = num_eightks > med8k
+
+* Create county-year variable
+egen cy= group( addzip ddate_year)
+
+save "path/to/data/crsp_panel_eventstudy.dta", replace
+* Empirical analysis (illustrative only for the public repository)
+* NOTE: The following descriptive statistics and regressions are EXAMPLES to illustrate
+* the analysis pipeline. They are NOT intended to reproduce confidential thesis tables.
+
+use "path/to/data/crsp_panel_eventstudy.dta", clear
+
+* Example descriptive stats (illustration)
+summarize car abs_car num_eightks
+tabstat car, statistics(mean median) by(ddisaster)
+
+* Example of creating a disclosure dummy (median split)
+egen med8k = median(num_eightks)
+gen high_disclosure = num_eightks > med8k
+
+* Example diff-in-diff style regression (illustration)
+* Requires reghdfe package privately installed; here just showing the specification:
+* reghdfe abs_car_w c.num_eightks##i.ddisaster ln_revt, absorb(sic ddate_year) vce(cluster firmid cy)
+
+* Minimal OLS example (illustration)
+reg abs_car ddisaster num_eightks ln_revt
+
+* End of illustrative analysis
