@@ -3,10 +3,13 @@
 * Replace dummy paths like path/to/data/... with your local paths if you run this privately.
 * --- Setup (no real paths) ---
 * cd "path/to/data"
-* (Optional) packages
-* ssc install winsor2, replace
-* ssc install reghdfe, replace
-* ssc install ftools, replace
+*packages
+ssc install winsor2, replace
+ssc install reghdfe, replace
+ssc install ftools, replace
+ssc install outreg2, replace
+ssc install asdoc,replace
+ssc install estout, replace
 * -------------------------------------------------
 * Process CRSP locations dataset
 use "CRSP_locations.dta", clear
