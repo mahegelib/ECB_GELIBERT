@@ -169,7 +169,7 @@ drop if count_event == 2
 
 * Estimate normal performance
 
-* We used the 'statsby' command inspired from the Amin(2021) command (we explained that in the thesis)
+* We used the 'statsby' command inspired from the Amin(2021) command
 * This allowed us to compute intercepts and slopes efficiently by group & produced the same results but in a much shorter time.
 egen id=group(eventid)
 preserve
