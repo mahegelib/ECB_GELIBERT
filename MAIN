@@ -258,13 +258,20 @@ egen cy= group( addzip ddate_year)
 save "path/to/data/crsp_panel_eventstudy.dta", replace
 * Empirical analysis (illustrative only for the public repository)
 * NOTE: The following descriptive statistics and regressions are EXAMPLES to illustrate
-* the analysis pipeline. They are NOT intended to reproduce confidential thesis tables.
+* the analysis pipeline. 
 
 use "path/to/data/crsp_panel_eventstudy.dta", clear
 
 * Example descriptive stats (illustration)
 summarize car abs_car num_eightks
 tabstat car, statistics(mean median) by(ddisaster)
+*histogram CAR
+histogram car if inrange(car, -0.2, 0.2), bin(50) title("Distribution of CAR (Zoom [-20%, +20%])") normal
+*stats for how the average CARs differ when we use other subsamples
+tabstat car, statistics(mean median) by(ddisaster)
+tabstat car, statistics(mean median) by(high_disclosure)
+table ddisaster high_disclosure, statistic(mean car) // pattern 2x2
+
 
 * Example of creating a disclosure dummy (median split)
 egen med8k = median(num_eightks)
